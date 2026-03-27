@@ -461,12 +461,6 @@
         <div class="panel-header">
           <h2>Input JSON</h2>
           <div>
-            <button id="json-zoom-out" class="btn btn-icon" title="Zoom Out">
-              -
-            </button>
-            <button id="json-zoom-in" class="btn btn-icon" title="Zoom In">
-              +
-            </button>
             <button id="format-btn" class="btn">Format JSON</button>
             <button id="generate-btn" class="btn btn-primary">
               Generate Grid
@@ -482,14 +476,6 @@
       <div class="panel" id="right-panel">
         <div class="panel-header">
           <h2>Grid View</h2>
-          <div>
-            <button id="grid-zoom-out" class="btn btn-icon" title="Zoom Out">
-              -
-            </button>
-            <button id="grid-zoom-in" class="btn btn-icon" title="Zoom In">
-              +
-            </button>
-          </div>
         </div>
         <div id="hidden-fields-bar"></div>
         <div id="grid-output"></div>
@@ -657,14 +643,6 @@
         }
         return currentSize;
       }
-      document.getElementById("json-zoom-in").onclick = () =>
-        (jsonFontSize = applyZoom(jsonInput, jsonFontSize, 2));
-      document.getElementById("json-zoom-out").onclick = () =>
-        (jsonFontSize = applyZoom(jsonInput, jsonFontSize, -2));
-      document.getElementById("grid-zoom-in").onclick = () =>
-        (gridFontSize = applyZoom(gridOutput, gridFontSize, 2));
-      document.getElementById("grid-zoom-out").onclick = () =>
-        (gridFontSize = applyZoom(gridOutput, gridFontSize, -2));
 
       jsonInput.addEventListener(
         "wheel",
