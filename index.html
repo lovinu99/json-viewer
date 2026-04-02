@@ -751,9 +751,21 @@
         const rawText = jsonInput.innerText.trim();
         if (!rawText) return null;
 
-        const parsed = JSON.parse(rawText);
-        const formatted = JSON.stringify(parsed, null, 2);
+        let parsed;
 
+        try {
+          // First parse
+          parsed = JSON.parse(rawText);
+
+          // If result is still a string → parse again
+          if (typeof parsed === "string") {
+            parsed = JSON.parse(parsed);
+          }
+        } catch (err) {
+          throw new Error("Invalid JSON or escaped JSON string");
+        }
+
+        const formatted = JSON.stringify(parsed, null, 2);
         jsonInput.innerHTML = syntaxHighlight(formatted);
         saveState();
 
