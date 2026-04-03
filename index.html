@@ -427,6 +427,10 @@
                 hide columns. Click the index number (e.g., 0, 1, 2) to hide
                 specific rows. Click the chips above the grid to restore them.
               </li>
+                    <li>
+                <strong>Trim Fields/Rows:</strong> trim hided fields/row by click
+                <br>[ ✂️ Trim JSON ].
+              </li>
               <li>
                 <strong>Zoom:</strong> Use the <code>+</code> and
                 <code>-</code> buttons or <code>Ctrl + Mouse Wheel</code> to
@@ -501,7 +505,18 @@
       <div class="panel" id="right-panel">
         <div class="panel-header">
           <h2>Grid View</h2>
-          <button id="trim-btn" class="btn" style="display:none;" title="Remove hidden fields & rows from JSON permanently">✂️ Trim JSON</button>
+          <div class="tooltip-wrapper">
+            <button id="trim-btn" class="btn" style="display:none;">✂️ Trim JSON</button>
+            <div class="tooltip-content" style="left:auto; right:0;">
+              <h3>✂️ Trim JSON</h3>
+              <ul>
+                <li>Permanently <strong>removes</strong> all hidden fields and rows from the JSON.</li>
+                <li>Updates the JSON input and reduces file size.</li>
+                <li>Use before <strong>Share</strong> to get a shorter URL.</li>
+                <li>This action <strong>cannot be undone</strong> via Trim — use <code>Ctrl+Z</code> to revert.</li>
+              </ul>
+            </div>
+          </div>
         </div>
         <div id="hidden-fields-bar"></div>
         <div id="grid-output"></div>
