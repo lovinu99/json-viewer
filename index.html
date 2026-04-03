@@ -363,7 +363,19 @@
         color: #cf222e;
         background: #fff;
       }
-      /* ===== Row hover ===== */
+      .btn-danger {
+        background: var(--color-danger);
+        color: #fff;
+        border-color: var(--color-danger);
+      }
+      .btn-danger:hover {
+        filter: brightness(0.85);
+      }
+      .trim-hint {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-left: 6px;
+      }
       table tr:hover {
         background-color: var(--table-row-hover);
       }
@@ -482,6 +494,7 @@
       <div class="panel" id="right-panel">
         <div class="panel-header">
           <h2>Grid View</h2>
+          <button id="trim-btn" class="btn" style="display:none;" title="Remove hidden fields & rows from JSON permanently">✂️ Trim JSON</button>
         </div>
         <div id="hidden-fields-bar"></div>
         <div id="grid-output"></div>
@@ -577,6 +590,7 @@
       function renderHiddenChips() {
         if (hiddenFields.size === 0 && hiddenRows.size === 0) {
           hiddenFieldsBar.innerHTML = "";
+          updateTrimBtn();
           return;
         }
         let html =
@@ -597,6 +611,7 @@
         });
 
         hiddenFieldsBar.innerHTML = html;
+        updateTrimBtn();
       }
 
       function renderGrid() {
@@ -918,7 +933,48 @@
         });
       });
 
-      // ===== Share / Load from URL =====
+      const trimBtn = document.getElementById("trim-btn");
+
+      function updateTrimBtn() {
+        const hasHidden = hiddenFields.size > 0 || hiddenRows.size > 0;
+        trimBtn.style.display = hasHidden ? "inline-block" : "none";
+        const count = hiddenFields.size + hiddenRows.size;
+        trimBtn.textContent = `✂️ Trim JSON (${count})`;
+      }
+
+      trimBtn.addEventListener("click", () => {
+        if (!currentParsedData) return;
+        const trimmed = trimData(currentParsedData, "root");
+        hiddenFields.clear();
+        hiddenRows.clear();
+        currentParsedData = trimmed;
+        const formatted = JSON.stringify(trimmed, null, 2);
+        jsonInput.innerHTML = syntaxHighlight(formatted);
+        saveState();
+        updateStats();
+        renderGrid();
+      });
+
+      // Recursively remove hidden fields and rows from data
+      function trimData(data, path) {
+        if (data === null || typeof data !== "object") return data;
+
+        if (Array.isArray(data)) {
+          const result = [];
+          data.forEach((item, i) => {
+            if (hiddenRows.has(`${path}[${i}]`)) return;
+            result.push(trimData(item, `${path}[${i}]`));
+          });
+          return result;
+        }
+
+        const result = {};
+        for (const key of Object.keys(data)) {
+          if (hiddenFields.has(key)) continue;
+          result[key] = trimData(data[key], `${path}.${key}`);
+        }
+        return result;
+      }
       const shareBtn = document.getElementById("share-btn");
 
       shareBtn.addEventListener("click", () => {
