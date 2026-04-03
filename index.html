@@ -462,7 +462,7 @@
         <div class="panel-header">
           <h2>Input JSON</h2>
           <div>
-      <button id="share-btn" class="btn" style="margin-right: 8px;">🔗 Share</button>
+      <button title="Share via url" id="share-btn" class="btn" style="margin-right: 8px;">🔗 Share</button>
 
             <button id="format-btn" class="btn">Format JSON</button>
             <button id="generate-btn" class="btn btn-primary">
@@ -471,7 +471,10 @@
           </div>
         </div>
         <div id="json-input" contenteditable="true" spellcheck="false"></div>
-        <div id="error-msg"></div>
+        <div style=" justify-content:space-between; align-items:left;">
+          <div id="error-msg"></div>
+          <div id="json-stats" style="font-size:11px; color:var(--text-muted); white-space:nowrap; padding-top:6px;"></div>
+        </div>
       </div>
 
       <div class="resizer" id="resizer"></div>
@@ -491,6 +494,7 @@
       const formatBtn = document.getElementById("format-btn");
       const generateBtn = document.getElementById("generate-btn");
       const errorMsg = document.getElementById("error-msg");
+      const jsonStats = document.getElementById("json-stats");
       const gridOutput = document.getElementById("grid-output");
       const themeToggle = document.getElementById("theme-toggle");
       const resizer = document.getElementById("resizer");
@@ -689,9 +693,18 @@
           historyIndex++;
         }
       }
+      function updateStats() {
+        const text = jsonInput.innerText.trim();
+        if (!text) { jsonStats.textContent = ""; return; }
+        const bytes = new TextEncoder().encode(text).length;
+        const len = text.length;
+        jsonStats.textContent = `${len.toLocaleString()} chars · ${bytes >= 1024 ? (bytes / 1024).toFixed(1) + " KB" : bytes + " B"}`;
+      }
+
       jsonInput.addEventListener("input", () => {
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(saveState, 400);
+        updateStats();
       });
       jsonInput.addEventListener("keydown", (e) => {
         if (e.ctrlKey && e.key.toLowerCase() === "z") {
@@ -944,6 +957,7 @@
 
       jsonInput.innerHTML = syntaxHighlight(defaultJson);
       saveState();
+      updateStats();
       if (!loadFromUrl()) generateBtn.click();
     </script>
   </body>
