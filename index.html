@@ -564,15 +564,15 @@
       let hiddenFields = new Set();
       let hiddenRows = new Set(); // Mảng track các hàng đã ẩn bằng đường dẫn (path)
 
-      window.hideField = function (encodedField) {
-        const field = decodeURIComponent(encodedField);
-        hiddenFields.add(field);
+      window.hideField = function (encodedPath) {
+        const path = decodeURIComponent(encodedPath);
+        hiddenFields.add(path);
         renderGrid();
       };
 
-      window.unhideField = function (encodedField) {
-        const field = decodeURIComponent(encodedField);
-        hiddenFields.delete(field);
+      window.unhideField = function (encodedPath) {
+        const path = decodeURIComponent(encodedPath);
+        hiddenFields.delete(path);
         renderGrid();
       };
 
@@ -606,9 +606,9 @@
         html += `<div class="hidden-chip hide-all" onclick="unhideAll()" title="Unhide All"> Unhide All <span>✖</span></div>`;
 
         hiddenFields.forEach((f) => {
-          const safeF = escapeHtml(f);
+          const safeF = escapeHtml(f.split(".").pop());
           const encodedF = encodeURIComponent(f);
-          html += `<div class="hidden-chip" onclick="unhideField('${encodedF}')" title="Click to show">Field: ${safeF} <span>✖</span></div>`;
+          html += `<div class="hidden-chip" onclick="unhideField('${encodedF}')" title="${escapeHtml(f)}">Field: ${safeF} <span>✖</span></div>`;
         });
 
         hiddenRows.forEach((r) => {
@@ -863,26 +863,28 @@
               }
             });
 
-            let cols = Array.from(keysSet).filter((c) => !hiddenFields.has(c));
+            // field path for array columns: use parent path + col name (strip array index)
+            // e.g. path = "root.address" → colPath = "root.address.wardCode"
+            const colPath = (col) => `${path}.${col}`;
+            let cols = Array.from(keysSet).filter((c) => !hiddenFields.has(colPath(c)));
 
             html += '<tr><th class="index-col">#</th>';
             cols.forEach((col) => {
               const safeCol = escapeHtml(col);
-              const encodedCol = encodeURIComponent(col);
-              html += `<th onclick="hideField('${encodedCol}')" title="Hide field">${safeCol} </th>`;
+              const encodedColPath = encodeURIComponent(colPath(col));
+              html += `<th onclick="hideField('${encodedColPath}')" title="Hide field">${safeCol} </th>`;
             });
             html += "</tr>";
 
             data.forEach((row, index) => {
               const currentPath = `${path}[${index}]`;
-              if (hiddenRows.has(currentPath)) return; // Bỏ qua render nếu hàng đã bị ẩn
+              if (hiddenRows.has(currentPath)) return;
 
               const encodedPath = encodeURIComponent(currentPath);
               html += `<tr><td class="index-col" onclick="hideRow('${encodedPath}')" title="Hide row">${index}</td>`;
               cols.forEach((col) => {
                 const val =
                   row && typeof row === "object" ? row[col] : undefined;
-                // Truyền tiếp currentPath để tracking sâu hơn
                 html += `<td>${val !== undefined ? buildTable(val, `${currentPath}.${col}`) : ""}</td>`;
               });
               html += "</tr>";
@@ -898,13 +900,13 @@
             });
           }
         } else {
-          let keys = Object.keys(data).filter((k) => !hiddenFields.has(k));
+          let keys = Object.keys(data).filter((k) => !hiddenFields.has(`${path}.${k}`));
           if (keys.length === 0) return "{}";
 
           keys.forEach((key) => {
             const safeKey = escapeHtml(key);
-            const encodedKey = encodeURIComponent(key);
-            html += `<tr><td onclick="hideField('${encodedKey}')" title="Hide field"><strong>${safeKey}</strong></td><td>${buildTable(data[key], `${path}.${key}`)}</td></tr>`;
+            const encodedKeyPath = encodeURIComponent(`${path}.${key}`);
+            html += `<tr><td onclick="hideField('${encodedKeyPath}')" title="Hide field"><strong>${safeKey}</strong></td><td>${buildTable(data[key], `${path}.${key}`)}</td></tr>`;
           });
         }
 
@@ -968,17 +970,24 @@
 
         if (Array.isArray(data)) {
           const result = [];
+          // strip array index from path to get the "column path" used when hiding
+          const arrayBasePath = path.replace(/\[\d+\]$/, "");
           data.forEach((item, i) => {
             if (hiddenRows.has(`${path}[${i}]`)) return;
-            result.push(trimData(item, `${path}[${i}]`));
+            result.push(trimData(item, `${path}[${i}]`, arrayBasePath));
           });
           return result;
         }
 
         const result = {};
         for (const key of Object.keys(data)) {
-          if (hiddenFields.has(key)) continue;
-          result[key] = trimData(data[key], `${path}.${key}`);
+          // check both exact path and array-column path (second arg passed from array branch)
+          const exactPath = `${path}.${key}`;
+          // path may be like root.address[0], strip index to get root.address
+          const basePath = path.replace(/\[\d+\]$/, "");
+          const colPath = `${basePath}.${key}`;
+          if (hiddenFields.has(exactPath) || hiddenFields.has(colPath)) continue;
+          result[key] = trimData(data[key], exactPath);
         }
         return result;
       }
