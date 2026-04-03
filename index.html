@@ -299,6 +299,7 @@
       table {
         border-collapse: collapse;
         width: 100%;
+        table-layout: auto;
         font-size: inherit;
         background: var(--panel-bg);
         border-radius: 4px;
@@ -309,8 +310,14 @@
         border: 1px solid var(--table-border);
         padding: 6px 10px;
         text-align: left;
-        vertical-align: center;
+        vertical-align: middle;
         cursor: pointer;
+        white-space: nowrap;
+      }
+      th:last-child,
+      td:last-child {
+        width: 100%;
+        white-space: normal;
       }
       th {
         background-color: var(--table-th-bg);
