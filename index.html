@@ -462,6 +462,8 @@
         <div class="panel-header">
           <h2>Input JSON</h2>
           <div>
+      <button id="share-btn" class="btn" style="margin-right: 8px;">🔗 Share</button>
+
             <button id="format-btn" class="btn">Format JSON</button>
             <button id="generate-btn" class="btn btn-primary">
               Generate Grid
@@ -483,6 +485,7 @@
       </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
     <script>
       const jsonInput = document.getElementById("json-input");
       const formatBtn = document.getElementById("format-btn");
@@ -902,9 +905,46 @@
         });
       });
 
+      // ===== Share / Load from URL =====
+      const shareBtn = document.getElementById("share-btn");
+
+      shareBtn.addEventListener("click", () => {
+        if (!currentParsedData) {
+          errorMsg.textContent = "Generate a grid first before sharing.";
+          return;
+        }
+        const compressed = LZString.compressToBase64(JSON.stringify(currentParsedData))
+          .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+        const url = `${location.origin}${location.pathname}?data=${compressed}`;
+        navigator.clipboard.writeText(url).then(() => {
+          const orig = shareBtn.textContent;
+          shareBtn.textContent = "✅ Copied!";
+          setTimeout(() => (shareBtn.textContent = orig), 2000);
+        });
+      });
+
+      function loadFromUrl() {
+        const params = new URLSearchParams(location.search);
+        const data = params.get("data");
+        if (!data) return false;
+        try {
+          const raw = data.replace(/-/g, "+").replace(/_/g, "/");
+          const parsed = JSON.parse(LZString.decompressFromBase64(raw));
+          currentParsedData = parsed;
+          const formatted = JSON.stringify(parsed, null, 2);
+          jsonInput.innerHTML = syntaxHighlight(formatted);
+          saveState();
+          renderGrid();
+          return true;
+        } catch (e) {
+          errorMsg.textContent = "Failed to load shared data.";
+          return false;
+        }
+      }
+
       jsonInput.innerHTML = syntaxHighlight(defaultJson);
       saveState();
-      generateBtn.click();
+      if (!loadFromUrl()) generateBtn.click();
     </script>
   </body>
 </html>
