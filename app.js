@@ -32,7 +32,7 @@ const defaultJson = `{
       "items": [
         { "itemId": "ITEM-102", "name": "item 2"}
       ]
-    },
+    }
   ]
 }`;
 
