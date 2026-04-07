@@ -433,6 +433,11 @@
         outline: 1px solid var(--accent-color);
         position: relative;
       }
+
+      @keyframes dot-bounce {
+        0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+        40% { transform: scale(1); opacity: 1; }
+      }
     </style>
   </head>
   <body data-theme="dark">
@@ -565,12 +570,24 @@
       </div>
     </div>
 
+    <!-- Loading overlay -->
+    <div id="loading-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;align-items:center;justify-content:center;">
+      <div style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;padding:32px 40px;text-align:center;box-shadow:var(--shadow-md);min-width:220px;">
+        <div style="font-size:28px;margin-bottom:12px;">&#x2601;&#xFE0F;</div>
+        <div id="loading-msg" style="font-size:14px;color:var(--text-main);margin-bottom:8px;">Loading from Drive...</div>
+        <div style="display:flex;justify-content:center;gap:6px;margin-top:4px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--accent-color);animation:dot-bounce 1.2s infinite ease-in-out;animation-delay:0s;display:inline-block;"></span>
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--accent-color);animation:dot-bounce 1.2s infinite ease-in-out;animation-delay:0.2s;display:inline-block;"></span>
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--accent-color);animation:dot-bounce 1.2s infinite ease-in-out;animation-delay:0.4s;display:inline-block;"></span>
+        </div>
+      </div>
+    </div>
+
     <div class="container">
       <div class="panel" id="left-panel">
         <div class="panel-header">
           <h2>Input JSON</h2>
           <div>
-            <button title="Share via url" id="share-btn" class="btn" style="margin-right:8px;">&#x1F517; Share</button>
             <button title="Save to Google Drive" id="drive-btn" class="btn" style="margin-right:8px;">&#x2601;&#xFE0F; Drive</button>
             <button id="format-btn" class="btn">Format JSON</button>
             <button id="generate-btn" class="btn btn-primary">
@@ -1091,22 +1108,6 @@
         }
         return result;
       }
-      const shareBtn = document.getElementById("share-btn");
-
-      shareBtn.addEventListener("click", () => {
-        if (!currentParsedData) {
-          errorMsg.textContent = "Generate a grid first before sharing.";
-          return;
-        }
-        const compressed = LZString.compressToBase64(JSON.stringify(currentParsedData))
-          .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-        const url = `${location.origin}${location.pathname}?data=${compressed}`;
-        navigator.clipboard.writeText(url).then(() => {
-          const orig = shareBtn.textContent;
-          shareBtn.textContent = "✅ Copied!";
-          setTimeout(() => (shareBtn.textContent = orig), 2000);
-        });
-      });
 
       function loadFromUrl() {
         const params = new URLSearchParams(location.search);
@@ -1144,7 +1145,7 @@
       var FOLDER_NAME = "JSON Grid Viewer";
       var FOLDER_KEY = "drive_folder_id";
       var HINT_KEY = "drive_user_hint";
-      var driveToken = null;
+      var driveToken = localStorage.getItem("drive_token") || null;
       var _tokenClient = null;
 
       function buildTokenClient() {
@@ -1162,6 +1163,7 @@
               return;
             }
             driveToken = resp.access_token;
+            localStorage.setItem("drive_token", driveToken);
             fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
               headers: { Authorization: "Bearer " + driveToken }
             }).then(function(r) { return r.json(); }).then(function(info) {
@@ -1175,7 +1177,13 @@
       }
 
       function silentAuth(onSuccess) {
+        // If token still in session, restore UI and use it directly
         var hint = localStorage.getItem(HINT_KEY);
+        if (driveToken) {
+          updateDriveUserUI({ email: hint || "" });
+          if (onSuccess) onSuccess();
+          return;
+        }
         if (!hint || !window.google || !google.accounts) return;
         var client = buildTokenClient();
         var orig = client.callback;
@@ -1183,6 +1191,7 @@
           client.callback = orig;
           if (!resp.error) {
             driveToken = resp.access_token;
+            localStorage.setItem("drive_token", driveToken);
             updateDriveUserUI({ email: hint });
             if (onSuccess) onSuccess();
           }
@@ -1209,12 +1218,19 @@
         document.getElementById("drive-modal").style.display = "none";
       };
 
-      function showUploadStep() {
-        document.getElementById("drive-step-login").style.display = "none";
-        document.getElementById("drive-step-upload").style.display = "block";
-        var ts = new Date().toISOString().slice(0, 10);
-        document.getElementById("drive-filename").value = "data-" + ts;
-      }
+function showUploadStep() {
+  document.getElementById("drive-step-login").style.display = "none";
+  document.getElementById("drive-step-upload").style.display = "block";
+
+  const now = new Date();
+
+  const ts = now.toLocaleString("sv-SE") 
+    .slice(0, 16)
+    .replace(" ", "-")
+    .replace(":", "-");
+
+  document.getElementById("drive-filename").value = "data-" + ts;
+}
 
       function openDriveModal() {
         var modal = document.getElementById("drive-modal");
@@ -1255,6 +1271,7 @@
       document.getElementById("google-signout-btn").addEventListener("click", function() {
         localStorage.removeItem(HINT_KEY);
         localStorage.removeItem(FOLDER_KEY);
+        localStorage.removeItem("drive_token");
         driveToken = null;
         _tokenClient = null;
         document.getElementById("google-user-info").style.display = "none";
@@ -1284,6 +1301,17 @@
             },
             body: body
           });
+          // token expired — clear and re-auth then retry
+          if (uploadRes.status === 401) {
+            localStorage.removeItem("drive_token");
+            driveToken = null;
+            _tokenClient = null;
+            showDriveError("Session expired. Please sign in again.");
+            showUploadStep();
+            document.getElementById("drive-step-login").style.display = "block";
+            document.getElementById("drive-step-upload").style.display = "none";
+            return;
+          }
           var file = await uploadRes.json();
           if (!file.id) throw new Error((file.error && file.error.message) || "Upload failed");
           var accessVal = document.querySelector("input[name='drive-access']:checked").value;
@@ -1369,11 +1397,23 @@
         }
       })();
 
+      function showLoading(msg) {
+        var el = document.getElementById("loading-overlay");
+        document.getElementById("loading-msg").textContent = msg || "Loading from Drive...";
+        el.style.cssText = "display:flex;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;align-items:center;justify-content:center;";
+      }
+      function hideLoading() {
+        document.getElementById("loading-overlay").style.display = "none";
+      }
+
       // Handle ?drive=fileId — runs here so DRIVE_API_KEY is available
       (function loadFromDrive() {
         var driveId = new URLSearchParams(location.search).get("drive");
         if (!driveId) { generateBtn.click(); return; }
-        errorMsg.textContent = "Loading from Drive...";
+        // defer until DOM is painted
+        requestAnimationFrame(function() {
+          showLoading("Loading from Drive...");
+        });
         var url = "https://www.googleapis.com/drive/v3/files/" + driveId
           + "?alt=media&key=" + DRIVE_API_KEY;
         fetch(url)
@@ -1382,12 +1422,14 @@
             return r.json();
           })
           .then(function(parsed) {
+            hideLoading();
             errorMsg.textContent = "";
             currentParsedData = parsed;
             jsonInput.innerHTML = syntaxHighlight(JSON.stringify(parsed, null, 2));
             saveState(); updateStats(); renderGrid();
           })
           .catch(function(e) {
+            hideLoading();
             errorMsg.textContent = "Failed to load from Drive: " + e.message;
             generateBtn.click();
           });
