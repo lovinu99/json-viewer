@@ -231,3 +231,119 @@ td:hover { background-color: var(--table-row-hover); outline: 1px solid var(--ac
   from { outline-color: #cf222e; }
   to { outline-color: #ff7b72; background: #a0001a; }
 }
+
+/* Fold/Hide buttons */
+.fold-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--accent-color);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 8px;
+  margin-right: 2px;
+  border-radius: 4px;
+  transition: background 0.15s, border-color 0.15s;
+  user-select: none;
+  min-width: 28px;
+}
+.fold-btn:hover {
+  background: var(--accent-color);
+  color: #fff;
+  border-color: var(--accent-color);
+}
+
+.fold-placeholder {
+  background: var(--table-th-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.fold-placeholder:hover {
+  background: var(--accent-color);
+  color: #fff;
+  border-color: var(--accent-color);
+}
+
+.fold-spacer {
+  display: inline-block;
+  width: 26px;
+}
+
+.hide-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-danger);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  user-select: none;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.hide-btn:hover {
+  background: var(--color-danger);
+  color: #fff;
+  opacity: 1 !important;
+}
+
+th .hide-btn, td .hide-btn {
+  float: right;
+  margin-left: 8px;
+}
+
+.field-th:hover .hide-btn,
+.key-cell:hover .hide-btn {
+  opacity: 1;
+}
+
+.field-th {
+  position: relative;
+  white-space: nowrap;
+}
+
+.field-th, .key-cell {
+  display: table-cell; /* keep default */
+}
+
+.field-th > span.cell-inner,
+.key-cell > span.cell-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.field-th.foldable, .key-cell.foldable {
+  cursor: pointer;
+  user-select: none;
+}
+.field-th.foldable:hover, .key-cell.foldable:hover {
+  background: var(--table-row-hover);
+}
+
+.th-inner, .key-inner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+}
+
+.th-name, .key-name {
+  flex: 1;
+  padding: 2px 0;
+}
+
+.key-cell {
+  white-space: nowrap;
+  min-width: 120px;
+  position: relative;
+}

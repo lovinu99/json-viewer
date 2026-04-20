@@ -64,6 +64,8 @@ function renderHiddenChips() {
 
 function renderGrid() {
   if (!currentParsedData) { gridOutput.innerHTML = ""; return; }
+  // auto-fold nested paths on first render
+  if (foldedPaths.size === 0) collectNestedPaths(currentParsedData);
   gridOutput.innerHTML = buildTable(currentParsedData, "root");
   renderHiddenChips();
 }
@@ -91,19 +93,43 @@ function applyZoom(el, size, delta) { const n = size + delta; if (n >= 8 && n <=
 jsonInput.addEventListener("wheel", (e) => { if (e.ctrlKey) { e.preventDefault(); jsonFontSize = applyZoom(jsonInput, jsonFontSize, e.deltaY < 0 ? 1 : -1); } }, { passive: false });
 gridOutput.addEventListener("wheel", (e) => { if (e.ctrlKey) { e.preventDefault(); gridFontSize = applyZoom(gridOutput, gridFontSize, e.deltaY < 0 ? 1 : -1); } }, { passive: false });
 
-// ===== History =====
-let historyStack = [], historyIndex = -1, saveTimeout;
+// ===== History & Auto-highlight =====
+let historyStack = [], historyIndex = -1, saveTimeout, highlightTimeout;
+const MAX_HIGHLIGHT_SIZE = 50000; // skip highlight if > 50KB
+
 function saveState() {
   const content = jsonInput.innerHTML;
   if (historyStack[historyIndex] !== content) { historyStack = historyStack.slice(0, historyIndex + 1); historyStack.push(content); historyIndex++; }
 }
+
 function updateStats() {
   const text = jsonInput.innerText.trim();
   if (!text) { jsonStats.textContent = ""; return; }
   const bytes = new TextEncoder().encode(text).length, len = text.length;
   jsonStats.textContent = `${len.toLocaleString()} chars · ${bytes >= 1024 ? (bytes / 1024).toFixed(1) + " KB" : bytes + " B"}`;
 }
-jsonInput.addEventListener("input", () => { clearTimeout(saveTimeout); saveTimeout = setTimeout(saveState, 400); updateStats(); });
+
+function debouncedHighlight() {
+  clearTimeout(highlightTimeout);
+  highlightTimeout = setTimeout(() => {
+    const text = jsonInput.textContent.trim();
+    if (text.length > MAX_HIGHLIGHT_SIZE) return; // skip for large JSON
+    try {
+      const parsed = JSON.parse(text);
+      jsonInput.innerHTML = syntaxHighlight(JSON.stringify(parsed, null, 2));
+    } catch(e) {
+      // invalid JSON — keep as-is, don't highlight
+    }
+  }, 800);
+}
+
+jsonInput.addEventListener("input", () => {
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(saveState, 400);
+  updateStats();
+  debouncedHighlight();
+});
+
 jsonInput.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.key.toLowerCase() === "z") {
     e.preventDefault();
@@ -111,10 +137,22 @@ jsonInput.addEventListener("keydown", (e) => {
     else { if (historyIndex > 0) { historyIndex--; jsonInput.innerHTML = historyStack[historyIndex]; } }
   }
 });
+
 jsonInput.addEventListener("paste", (e) => {
   e.preventDefault();
-  document.execCommand("insertText", false, (e.clipboardData || window.clipboardData).getData("text/plain"));
+  const text = (e.clipboardData || window.clipboardData).getData("text/plain");
+  document.execCommand("insertText", false, text);
   saveState();
+  // immediate highlight for paste if not too large
+  if (text.length <= MAX_HIGHLIGHT_SIZE) {
+    clearTimeout(highlightTimeout);
+    highlightTimeout = setTimeout(() => {
+      try {
+        const parsed = JSON.parse(jsonInput.textContent.trim());
+        jsonInput.innerHTML = syntaxHighlight(JSON.stringify(parsed, null, 2));
+      } catch(e) {}
+    }, 100);
+  }
 });
 
 // ===== Theme =====
@@ -199,13 +237,15 @@ function betterJsonParse(jsonString) {
 }
 
 function parseAndFormatJSON() {
-  // Use textContent to avoid browser adding extra newlines from inline <p> tags
   const rawText = jsonInput.textContent.trim();
   if (!rawText) return null;
   let result = betterJsonParse(rawText);
   if (result.success && typeof result.data === "string") result = betterJsonParse(result.data);
   if (!result.success) throw result;
-  jsonInput.innerHTML = syntaxHighlight(JSON.stringify(result.data, null, 2));
+  const formatted = JSON.stringify(result.data, null, 2);
+  jsonInput.innerHTML = formatted.length <= MAX_HIGHLIGHT_SIZE
+    ? syntaxHighlight(formatted)
+    : escapeHtml(formatted);
   saveState();
   return result.data;
 }
@@ -246,9 +286,48 @@ formatBtn.addEventListener("click", () => {
 generateBtn.addEventListener("click", () => {
   errorMsg.style.whiteSpace = "";
   errorMsg.textContent = "";
-  try { const parsed = parseAndFormatJSON(); currentParsedData = parsed; renderGrid(); }
+  try {
+    const parsed = parseAndFormatJSON();
+    currentParsedData = parsed;
+    foldedPaths.clear();
+    renderGrid();
+  }
   catch (e) { handleJsonError(e); }
 });
+
+// ===== Fold/Unfold =====
+const foldedPaths = new Set();
+
+function collectNestedPaths(data, path = "root") {
+  if (data === null || typeof data !== "object") return;
+  if (Array.isArray(data)) {
+    data.forEach((item, i) => collectNestedPaths(item, `${path}[${i}]`));
+  } else {
+    Object.keys(data).forEach((key) => {
+      const keyPath = `${path}.${key}`;
+      const val = data[key];
+      if (val !== null && typeof val === "object") {
+        foldedPaths.add(keyPath);
+        collectNestedPaths(val, keyPath);
+      }
+    });
+  }
+}
+
+window.toggleFold = function(encodedPath) {
+  const path = decodeURIComponent(encodedPath);
+  if (foldedPaths.has(path)) foldedPaths.delete(path);
+  else foldedPaths.add(path);
+  renderGrid();
+};
+
+function isFolded(path) {
+  // check if any ancestor is folded
+  for (const f of foldedPaths) {
+    if (path === f || path.startsWith(f + ".") || path.startsWith(f + "[")) return true;
+  }
+  return false;
+}
 
 // ===== Build Table =====
 function formatGridValue(val) {
@@ -259,11 +338,23 @@ function formatGridValue(val) {
   return val;
 }
 
+function foldBtn(path) {
+  const folded = foldedPaths.has(path);
+  return `<button class="fold-btn" onclick="toggleFold('${encodeURIComponent(path)}')" title="${folded ? "Unfold" : "Fold"}">${folded ? "▶" : "▼"}</button>`;
+}
+
 function buildTable(data, path = "root") {
   if (data === null || typeof data !== "object") return formatGridValue(data);
+
+  if (foldedPaths.has(path)) {
+    const count = Array.isArray(data) ? data.length : Object.keys(data).length;
+    const label = Array.isArray(data) ? `[…${count} items]` : `{…${count} fields}`;
+    return `<button class="fold-placeholder" onclick="toggleFold('${encodeURIComponent(path)}')" title="Click to unfold">▶ ${label}</button>`;
+  }
+
   let html = "<table>";
   if (Array.isArray(data)) {
-    if (data.length === 0) return "[]";
+    if (data.length === 0) return '<span style="color:var(--text-muted);">[]</span>';
     const isObjArray = data.some((item) => typeof item === "object" && item !== null && !Array.isArray(item));
     if (isObjArray) {
       let keysSet = new Set();
@@ -271,13 +362,27 @@ function buildTable(data, path = "root") {
       const colPath = (col) => `${path}.${col}`;
       let cols = Array.from(keysSet).filter((c) => !hiddenFields.has(colPath(c)));
       html += '<tr><th class="index-col">#</th>';
-      cols.forEach((col) => { html += `<th onclick="hideField('${encodeURIComponent(colPath(col))}')" title="Hide field">${escapeHtml(col)} </th>`; });
+      cols.forEach((col) => {
+        const cp = colPath(col);
+        const hasNested = data.some(r => r && typeof r[col] === "object" && r[col] !== null);
+        html += `<th class="field-th${hasNested ? " foldable" : ""}" ${hasNested ? `onclick="toggleFold('${encodeURIComponent(cp)}')"` : ""}><span class="cell-inner"><span>${foldedPaths.has(cp) ? "▶ " : hasNested ? "▼ " : ""}${escapeHtml(col)}</span><button class="hide-btn" onclick="event.stopPropagation();hideField('${encodeURIComponent(cp)}')" title="Hide column">✕</button></span></th>`;
+      });
       html += "</tr>";
       data.forEach((row, index) => {
         const currentPath = `${path}[${index}]`;
         if (hiddenRows.has(currentPath)) return;
         html += `<tr><td class="index-col" onclick="hideRow('${encodeURIComponent(currentPath)}')" title="Hide row">${index}</td>`;
-        cols.forEach((col) => { const val = row && typeof row === "object" ? row[col] : undefined; html += `<td>${val !== undefined ? buildTable(val, `${currentPath}.${col}`) : ""}</td>`; });
+        cols.forEach((col) => {
+          const val = row && typeof row === "object" ? row[col] : undefined;
+          const cellPath = `${currentPath}.${col}`;
+          if (foldedPaths.has(colPath(col))) {
+            const c = val && typeof val === "object" ? (Array.isArray(val) ? val.length : Object.keys(val).length) : 0;
+            const label = Array.isArray(val) ? `[…${c}]` : `{…${c}}`;
+            html += `<td><button class="fold-placeholder" onclick="toggleFold('${encodeURIComponent(colPath(col))}')" title="Click to unfold">▶ ${label}</button></td>`;
+          } else {
+            html += `<td>${val !== undefined ? buildTable(val, cellPath) : ""}</td>`;
+          }
+        });
         html += "</tr>";
       });
     } else {
@@ -290,8 +395,16 @@ function buildTable(data, path = "root") {
     }
   } else {
     let keys = Object.keys(data).filter((k) => !hiddenFields.has(`${path}.${k}`));
-    if (keys.length === 0) return "{}";
-    keys.forEach((key) => { html += `<tr><td onclick="hideField('${encodeURIComponent(`${path}.${key}`)}')" title="Hide field"><strong>${escapeHtml(key)}</strong></td><td>${buildTable(data[key], `${path}.${key}`)}</td></tr>`; });
+    if (keys.length === 0) return '<span style="color:var(--text-muted);">{}</span>';
+    keys.forEach((key) => {
+      const keyPath = `${path}.${key}`;
+      const val = data[key];
+      const isNested = val !== null && typeof val === "object";
+      html += `<tr>
+        <td class="key-cell${isNested ? " foldable" : ""}" ${isNested ? `onclick="toggleFold('${encodeURIComponent(keyPath)}')"` : ""}><span class="cell-inner"><span>${foldedPaths.has(keyPath) ? "▶ " : isNested ? "▼ " : ""}<strong>${escapeHtml(key)}</strong></span><button class="hide-btn" onclick="event.stopPropagation();hideField('${encodeURIComponent(keyPath)}')" title="Hide field">✕</button></span></td>
+        <td>${buildTable(val, keyPath)}</td>
+      </tr>`;
+    });
   }
   html += "</table>";
   return html;
