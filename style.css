@@ -100,7 +100,8 @@ header {
   transition: opacity 0.2s, visibility 0.2s;
   font-size: 13px; font-weight: normal; line-height: 1.5;
 }
-.tooltip-wrapper:hover .tooltip-content { visibility: visible; opacity: 1; }
+/* Tooltip shows after 3s hover delay (controlled via JS) */
+.tooltip-wrapper .tooltip-content.tooltip-visible { visibility: visible; opacity: 1; }
 .tooltip-content h3 { margin: 0 0 10px 0; font-size: 14px; color: var(--resizer-hover); }
 .tooltip-content ul { padding-left: 20px; margin: 0; }
 .tooltip-content li { margin-bottom: 6px; }
@@ -268,6 +269,7 @@ td:hover { background-color: var(--table-row-hover); outline: 1px solid var(--ac
   color: #fff;
   border-color: var(--accent-color);
 }
+
 
 .fold-spacer {
   display: inline-block;
