@@ -64,9 +64,7 @@ function renderHiddenChips() {
 
 function renderGrid() {
   if (!currentParsedData) { gridOutput.innerHTML = ""; return; }
-  // auto-fold nested paths on first render
-  if (foldedPaths.size === 0) collectNestedPaths(currentParsedData);
-  gridOutput.innerHTML = buildTable(currentParsedData, "root");
+  gridOutput.innerHTML = buildTable(currentParsedData, "root", true);
   renderHiddenChips();
 }
 
@@ -289,44 +287,68 @@ generateBtn.addEventListener("click", () => {
   try {
     const parsed = parseAndFormatJSON();
     currentParsedData = parsed;
-    foldedPaths.clear();
+    expandState = {};
+    nodeCache = {};
     renderGrid();
   }
   catch (e) { handleJsonError(e); }
 });
 
-// ===== Fold/Unfold =====
-const foldedPaths = new Set();
+// ===== Fold/Unfold (Lazy Expansion System) =====
+// expandState: Record<nodeId, boolean> — true = expanded, absent/false = collapsed
+// nodeCache: Record<nodeId, {data, cols?, keys?}> — parsed node cache
+let expandState = {};
+let nodeCache = {};
 
-function collectNestedPaths(data, path = "root") {
-  if (data === null || typeof data !== "object") return;
-  if (Array.isArray(data)) {
-    data.forEach((item, i) => collectNestedPaths(item, `${path}[${i}]`));
-  } else {
-    Object.keys(data).forEach((key) => {
-      const keyPath = `${path}.${key}`;
-      const val = data[key];
-      if (val !== null && typeof val === "object") {
-        foldedPaths.add(keyPath);
-        collectNestedPaths(val, keyPath);
-      }
-    });
+/**
+ * Generate a stable path-based node ID.
+ * For array items, prefer item.id if it exists: users[id=123]
+ * Otherwise fallback to index: users[0]
+ */
+function getNodeId(parentPath, index, item) {
+  if (item !== null && typeof item === "object" && !Array.isArray(item) && item.id !== undefined) {
+    return `${parentPath}[id=${item.id}]`;
   }
+  return `${parentPath}[${index}]`;
 }
 
-window.toggleFold = function(encodedPath) {
-  const path = decodeURIComponent(encodedPath);
-  if (foldedPaths.has(path)) foldedPaths.delete(path);
-  else foldedPaths.add(path);
+/**
+ * Toggle expand state of a single node — no cascading.
+ */
+window.toggleExpand = function(encodedId) {
+  const id = decodeURIComponent(encodedId);
+  expandState[id] = !expandState[id];
   renderGrid();
 };
 
-function isFolded(path) {
-  // check if any ancestor is folded
-  for (const f of foldedPaths) {
-    if (path === f || path.startsWith(f + ".") || path.startsWith(f + "[")) return true;
+/**
+ * Check if a node is currently expanded.
+ * A node is expanded only when expandState[id] === true.
+ * Parent state does NOT affect this check.
+ */
+function isExpanded(id) {
+  return expandState[id] === true;
+}
+
+/**
+ * Get or create a cached parsed representation of a node.
+ */
+function getCachedNode(id, data) {
+  if (nodeCache[id]) return nodeCache[id];
+  const node = { data };
+  if (Array.isArray(data)) {
+    const isObjArray = data.some(item => typeof item === "object" && item !== null && !Array.isArray(item));
+    node.isObjArray = isObjArray;
+    if (isObjArray) {
+      const keysSet = new Set();
+      data.forEach(item => { if (typeof item === "object" && item !== null) Object.keys(item).forEach(k => keysSet.add(k)); });
+      node.cols = Array.from(keysSet);
+    }
+  } else if (typeof data === "object" && data !== null) {
+    node.keys = Object.keys(data);
   }
-  return false;
+  nodeCache[id] = node;
+  return node;
 }
 
 // ===== Build Table =====
@@ -338,74 +360,110 @@ function formatGridValue(val) {
   return val;
 }
 
-function foldBtn(path) {
-  const folded = foldedPaths.has(path);
-  return `<button class="fold-btn" onclick="toggleFold('${encodeURIComponent(path)}')" title="${folded ? "Unfold" : "Fold"}">${folded ? "▶" : "▼"}</button>`;
-}
-
-function buildTable(data, path = "root") {
+/**
+ * Build the HTML table for a given data node.
+ * @param {*} data - The data value to render.
+ * @param {string} id - The stable path-based node ID.
+ * @param {boolean} [isRoot=false] - Whether this is the root node (always rendered expanded).
+ */
+function buildTable(data, id = "root", isRoot = false) {
+  // Primitives: render inline
   if (data === null || typeof data !== "object") return formatGridValue(data);
 
-  if (foldedPaths.has(path)) {
+  const cached = getCachedNode(id, data);
+  const expanded = isRoot || isExpanded(id);
+
+  // Collapsed state: show a clickable placeholder, do NOT render children
+  if (!expanded) {
     const count = Array.isArray(data) ? data.length : Object.keys(data).length;
     const label = Array.isArray(data) ? `[…${count} items]` : `{…${count} fields}`;
-    return `<button class="fold-placeholder" onclick="toggleFold('${encodeURIComponent(path)}')" title="Click to unfold">▶ ${label}</button>`;
+    return `<button class="fold-placeholder" onclick="toggleExpand('${encodeURIComponent(id)}')" title="Click to expand">▶ ${label}</button>`;
   }
 
   let html = "<table>";
+
   if (Array.isArray(data)) {
     if (data.length === 0) return '<span style="color:var(--text-muted);">[]</span>';
-    const isObjArray = data.some((item) => typeof item === "object" && item !== null && !Array.isArray(item));
-    if (isObjArray) {
-      let keysSet = new Set();
-      data.forEach((item) => { if (typeof item === "object" && item !== null) Object.keys(item).forEach((k) => keysSet.add(k)); });
-      const colPath = (col) => `${path}.${col}`;
-      let cols = Array.from(keysSet).filter((c) => !hiddenFields.has(colPath(c)));
+
+    if (cached.isObjArray) {
+      // --- Object Array: render as table with columns ---
+      const cols = cached.cols.filter(c => !hiddenFields.has(`${id}.${c}`));
+
+      // Header row
       html += '<tr><th class="index-col">#</th>';
-      cols.forEach((col) => {
-        const cp = colPath(col);
-        const hasNested = data.some(r => r && typeof r[col] === "object" && r[col] !== null);
-        html += `<th class="field-th${hasNested ? " foldable" : ""}" ${hasNested ? `onclick="toggleFold('${encodeURIComponent(cp)}')"` : ""}><span class="cell-inner"><span>${foldedPaths.has(cp) ? "▶ " : hasNested ? "▼ " : ""}${escapeHtml(col)}</span><button class="hide-btn" onclick="event.stopPropagation();hideField('${encodeURIComponent(cp)}')" title="Hide column">✕</button></span></th>`;
+      cols.forEach(col => {
+        const colId = `${id}.${col}`;
+        const hasNested = cached.data.some(r => r && typeof r[col] === "object" && r[col] !== null);
+        const colExpanded = isExpanded(colId);
+        const arrow = hasNested ? (colExpanded ? "▼ " : "▶ ") : "";
+        const foldable = hasNested ? " foldable" : "";
+        const clickHandler = hasNested ? `onclick="toggleExpand('${encodeURIComponent(colId)}')"` : "";
+        html += `<th class="field-th${foldable}" ${clickHandler}>`
+          + `<span class="cell-inner"><span>${arrow}${escapeHtml(col)}</span>`
+          + `<button class="hide-btn" onclick="event.stopPropagation();hideField('${encodeURIComponent(colId)}')" title="Hide column">✕</button>`
+          + `</span></th>`;
       });
       html += "</tr>";
+
+      // Data rows — lazy: only render cell content if column is expanded (or not nested)
       data.forEach((row, index) => {
-        const currentPath = `${path}[${index}]`;
-        if (hiddenRows.has(currentPath)) return;
-        html += `<tr><td class="index-col" onclick="hideRow('${encodeURIComponent(currentPath)}')" title="Hide row">${index}</td>`;
-        cols.forEach((col) => {
+        const rowId = getNodeId(id, index, row);
+        if (hiddenRows.has(rowId) || hiddenRows.has(`${id}[${index}]`)) return;
+        html += `<tr><td class="index-col" onclick="hideRow('${encodeURIComponent(rowId)}')" title="Hide row">${index}</td>`;
+        cols.forEach(col => {
           const val = row && typeof row === "object" ? row[col] : undefined;
-          const cellPath = `${currentPath}.${col}`;
-          if (foldedPaths.has(colPath(col))) {
-            const c = val && typeof val === "object" ? (Array.isArray(val) ? val.length : Object.keys(val).length) : 0;
-            const label = Array.isArray(val) ? `[…${c}]` : `{…${c}}`;
-            html += `<td><button class="fold-placeholder" onclick="toggleFold('${encodeURIComponent(colPath(col))}')" title="Click to unfold">▶ ${label}</button></td>`;
+          const colId = `${id}.${col}`;
+          const cellId = `${rowId}.${col}`;
+          if (val !== null && typeof val === "object" && val !== undefined) {
+            // Nested cell: check column-level expand state
+            if (!isExpanded(colId)) {
+              const c = Array.isArray(val) ? val.length : Object.keys(val).length;
+              const label = Array.isArray(val) ? `[…${c}]` : `{…${c}}`;
+              html += `<td><button class="fold-placeholder" onclick="toggleExpand('${encodeURIComponent(colId)}')" title="Click to expand">▶ ${label}</button></td>`;
+            } else {
+              html += `<td>${buildTable(val, cellId)}</td>`;
+            }
           } else {
-            html += `<td>${val !== undefined ? buildTable(val, cellPath) : ""}</td>`;
+            html += `<td>${val !== undefined ? formatGridValue(val) : ""}</td>`;
           }
         });
         html += "</tr>";
       });
     } else {
+      // --- Primitive/mixed array: simple index + value ---
       html += '<tr><th class="index-col">#</th><th>Value</th></tr>';
       data.forEach((item, index) => {
-        const currentPath = `${path}[${index}]`;
-        if (hiddenRows.has(currentPath)) return;
-        html += `<tr><td class="index-col" onclick="hideRow('${encodeURIComponent(currentPath)}')" title="Hide row">${index}</td><td>${buildTable(item, currentPath)}</td></tr>`;
+        const itemId = getNodeId(id, index, item);
+        if (hiddenRows.has(itemId) || hiddenRows.has(`${id}[${index}]`)) return;
+        html += `<tr>`
+          + `<td class="index-col" onclick="hideRow('${encodeURIComponent(itemId)}')" title="Hide row">${index}</td>`
+          + `<td>${buildTable(item, itemId)}</td>`
+          + `</tr>`;
       });
     }
   } else {
-    let keys = Object.keys(data).filter((k) => !hiddenFields.has(`${path}.${k}`));
-    if (keys.length === 0) return '<span style="color:var(--text-muted);">{}</span>';
-    keys.forEach((key) => {
-      const keyPath = `${path}.${key}`;
+    // --- Object: render as key-value grid ---
+    const keys = (cached.keys || Object.keys(data)).filter(k => !hiddenFields.has(`${id}.${k}`));
+    if (keys.length === 0) return '<span style="color:var(--text-muted);">{}\u200b</span>';
+    keys.forEach(key => {
+      const keyId = `${id}.${key}`;
       const val = data[key];
       const isNested = val !== null && typeof val === "object";
-      html += `<tr>
-        <td class="key-cell${isNested ? " foldable" : ""}" ${isNested ? `onclick="toggleFold('${encodeURIComponent(keyPath)}')"` : ""}><span class="cell-inner"><span>${foldedPaths.has(keyPath) ? "▶ " : isNested ? "▼ " : ""}<strong>${escapeHtml(key)}</strong></span><button class="hide-btn" onclick="event.stopPropagation();hideField('${encodeURIComponent(keyPath)}')" title="Hide field">✕</button></span></td>
-        <td>${buildTable(val, keyPath)}</td>
-      </tr>`;
+      const isExp = isNested && isExpanded(keyId);
+      const arrow = isNested ? (isExp ? "▼ " : "▶ ") : "";
+      const foldable = isNested ? " foldable" : "";
+      const clickHandler = isNested ? `onclick="toggleExpand('${encodeURIComponent(keyId)}')"` : "";
+      html += `<tr>`
+        + `<td class="key-cell${foldable}" ${clickHandler}>`
+        + `<span class="cell-inner">`
+        + `<span>${arrow}<strong>${escapeHtml(key)}</strong></span>`
+        + `<button class="hide-btn" onclick="event.stopPropagation();hideField('${encodeURIComponent(keyId)}')" title="Hide field">✕</button>`
+        + `</span></td>`
+        + `<td>${buildTable(val, keyId)}</td>`
+        + `</tr>`;
     });
   }
+
   html += "</table>";
   return html;
 }
@@ -472,6 +530,8 @@ function loadFromUrl() {
   try {
     const parsed = JSON.parse(LZString.decompressFromBase64(data.replace(/-/g, "+").replace(/_/g, "/")));
     currentParsedData = parsed;
+    expandState = {};
+    nodeCache = {};
     jsonInput.innerHTML = syntaxHighlight(JSON.stringify(parsed, null, 2));
     saveState(); renderGrid();
     return true;
