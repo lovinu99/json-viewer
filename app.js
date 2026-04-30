@@ -544,15 +544,19 @@ function scrollToPath(targetPath) {
   const targetLine = map[targetPath];
   if (targetLine) {
     const style = window.getComputedStyle(jsonInput);
-    const lh = parseFloat(style.lineHeight) || (parseFloat(style.fontSize) * 1.5);
+    const lh = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5;
     const paddingTop = parseFloat(style.paddingTop) || 15;
-    
+
     // calculate Y offset and center in viewport
     const yOffset = paddingTop + (targetLine - 1) * lh;
-    const centerOffset = Math.max(0, yOffset - jsonInput.clientHeight / 2 + lh / 2);
-    
+    const centerOffset = Math.max(
+      0,
+      yOffset - jsonInput.clientHeight / 2 + lh / 2,
+    );
+
     jsonInput.scrollTo({ top: centerOffset, behavior: "smooth" });
   }
+  return `${parentPath}[${index}]`;
 }
 
 /**
