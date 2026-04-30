@@ -507,6 +507,53 @@ function getNodeId(parentPath, index, item) {
   }
   return `${parentPath}[${index}]`;
 }
+function getPathLineMap(data) {
+  const map = {};
+  let line = 1;
+
+  function traverse(obj, currentPath) {
+    map[currentPath] = line;
+    if (obj === null || typeof obj !== "object") return;
+
+    if (Array.isArray(obj)) {
+      if (obj.length === 0) return;
+      obj.forEach((item, index) => {
+        line++;
+        const childPath = getNodeId(currentPath, index, item);
+        traverse(item, childPath);
+      });
+      line++;
+    } else {
+      const keys = Object.keys(obj);
+      if (keys.length === 0) return;
+      keys.forEach((key) => {
+        line++;
+        traverse(obj[key], currentPath + "." + key);
+      });
+      line++;
+    }
+  }
+
+  traverse(data, "root");
+  return map;
+}
+
+function scrollToPath(targetPath) {
+  if (!currentParsedData) return;
+  const map = getPathLineMap(currentParsedData);
+  const targetLine = map[targetPath];
+  if (targetLine) {
+    const style = window.getComputedStyle(jsonInput);
+    const lh = parseFloat(style.lineHeight) || (parseFloat(style.fontSize) * 1.5);
+    const paddingTop = parseFloat(style.paddingTop) || 15;
+    
+    // calculate Y offset and center in viewport
+    const yOffset = paddingTop + (targetLine - 1) * lh;
+    const centerOffset = Math.max(0, yOffset - jsonInput.clientHeight / 2 + lh / 2);
+    
+    jsonInput.scrollTo({ top: centerOffset, behavior: "smooth" });
+  }
+}
 
 /**
  * Toggle expand state of a single node — no cascading.
@@ -515,6 +562,7 @@ window.toggleExpand = function (encodedId) {
   const id = decodeURIComponent(encodedId);
   expandState[id] = !expandState[id];
   renderGrid();
+  scrollToPath(id);
 };
 
 /**
