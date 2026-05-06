@@ -786,15 +786,19 @@ function trimData(data, path) {
   if (Array.isArray(data)) {
     const result = [];
     data.forEach((item, i) => {
-      if (!hiddenRows.has(`${path}[${i}]`))
-        result.push(trimData(item, `${path}[${i}]`));
+      const indexPath = `${path}[${i}]`;
+      const idPath = getNodeId(path, i, item);
+      if (hiddenRows.has(indexPath) || hiddenRows.has(idPath)) return;
+      result.push(trimData(item, indexPath));
     });
     return result;
   }
   const result = {};
   for (const key of Object.keys(data)) {
-    const exactPath = `${path}.${key}`,
-      colPath = `${path.replace(/\[\d+\]$/, "")}.${key}`;
+    const exactPath = `${path}.${key}`;
+    // strip array index variants: root[0].key → root.key, root[id=x].key → root.key
+    const basePath = path.replace(/\[.*?\]$/, "");
+    const colPath = `${basePath}.${key}`;
     if (hiddenFields.has(exactPath) || hiddenFields.has(colPath)) continue;
     result[key] = trimData(data[key], exactPath);
   }
